@@ -1,12 +1,15 @@
-from contextlib import asynccontextmanager
-from functools import partial
 import strawberry
-from strawberry.types import Info
-from fastapi import FastAPI
-from strawberry.fastapi import BaseContext, GraphQLRouter
+from contextlib import asynccontextmanager
 from databases import Database
-
+from dotenv import load_dotenv
+from fastapi import FastAPI
+from functools import partial
+from strawberry.types import Info
+from strawberry.fastapi import BaseContext, GraphQLRouter
 from settings import Settings
+
+
+load_dotenv()
 
 
 class Context(BaseContext):
@@ -38,15 +41,24 @@ class Query:
     async def books(
         self,
         info: Info[Context, None],
-        author_ids: list[int] | None = [],
+        author_ids: list[int] | None = None,
         search: str | None = None,
         limit: int | None = None,
     ) -> list[Book]:
-        # TODO:
-        # Do NOT use dataloaders
-        await info.context.db.execute("select 1")
-        return []
-
+        if not author_ids:
+            author_ids = []
+        author_ids_str = ','.join([str(author_id) for author_id in author_ids])
+        sql_query = "select title, a.name from books inner join authors a on a.id = books.author_id"
+        if author_ids or search:
+            sql_query += ' where '
+        if author_ids:
+            sql_query += 'author_id in (' + author_ids_str + ')'
+        if search:
+            sql_query += "title like '%" + search + "%'"
+        if limit is not None:
+            sql_query += ' limit ' + str(limit)
+        response = await info.context.db.fetch_all(sql_query)
+        return [Book(title=book['title'], author=Author(name=book['name'])) for book in response]
 
 
 CONN_TEMPLATE = "postgresql+asyncpg://{user}:{password}@{host}:{port}/{name}"
